@@ -46,7 +46,6 @@ def transcribe_chunk(file_path: str, diarize: bool = False, language: str | None
                         model=DIARIZATION_MODEL,
                         file=audio_file,
                         response_format="diarized_json",
-                        chunking_strategy="auto",
                         **({"language": language} if language else {}),
                     )
                     return {
