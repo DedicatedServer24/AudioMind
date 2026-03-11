@@ -1,8 +1,12 @@
 """Upload-Bereich: Datei-Upload, Optionen und Prompt-Auswahl."""
 
+import logging
+
 import streamlit as st
 
 from config import ALLOWED_FORMATS, MAX_UPLOAD_SIZE_MB, PROMPT_TEMPLATES
+
+logger = logging.getLogger(__name__)
 
 
 def render_upload_section():
@@ -136,9 +140,11 @@ def render_process_button():
         return True
 
     except AudioMindError as e:
+        logger.error(f"Verarbeitung fehlgeschlagen: {e}", exc_info=True)
         st.error(e.user_message)
         return False
-    except Exception:
+    except Exception as e:
+        logger.error(f"Unerwarteter Fehler: {e}", exc_info=True)
         st.error("Ein unerwarteter Fehler ist aufgetreten. Bitte erneut versuchen.")
         return False
     finally:
