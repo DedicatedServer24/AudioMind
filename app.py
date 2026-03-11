@@ -65,10 +65,11 @@ def sidebar_fragment_static():
     render_sidebar_history(username)
 
 
-if _has_active:
-    sidebar_fragment_polling()
-else:
-    sidebar_fragment_static()
+with st.sidebar:
+    if _has_active:
+        sidebar_fragment_polling()
+    else:
+        sidebar_fragment_static()
 
 # --- Hauptbereich ---
 st.title("AudioMind")

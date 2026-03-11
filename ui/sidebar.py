@@ -19,19 +19,19 @@ ACTIVE_STATUSES = {"queued", "compressing", "transcribing", "summarizing"}
 
 
 def render_sidebar_history(username: str) -> bool:
-    """Rendert die Job-History in der Sidebar.
+    """Rendert die Job-History. Muss innerhalb von `with st.sidebar:` aufgerufen werden.
 
     Returns:
-        True wenn mindestens ein Job aktiv ist (für Auto-Refresh).
+        True wenn mindestens ein Job aktiv ist.
     """
     jobs = get_jobs_by_user(username)
     has_active = any(j["status"] in ACTIVE_STATUSES for j in jobs)
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Verlauf")
+    st.markdown("---")
+    st.subheader("Verlauf")
 
     if not jobs:
-        st.sidebar.caption("Noch keine Aufträge.")
+        st.caption("Noch keine Aufträge.")
         return False
 
     for job in jobs:
@@ -40,11 +40,10 @@ def render_sidebar_history(username: str) -> bool:
     # "Alle löschen" Button
     completed_or_failed = [j for j in jobs if j["status"] in ("completed", "failed")]
     if completed_or_failed:
-        st.sidebar.markdown("---")
-        if st.sidebar.button("🗑️ Alle löschen", use_container_width=True, key="delete_all"):
+        st.markdown("---")
+        if st.button("🗑️ Alle löschen", use_container_width=True, key="delete_all"):
             delete_all_jobs(username)
             if st.session_state.get("selected_job_id"):
-                # Prüfen ob der ausgewählte Job gelöscht wurde
                 selected_id = st.session_state["selected_job_id"]
                 if any(j["id"] == selected_id for j in completed_or_failed):
                     del st.session_state["selected_job_id"]
@@ -54,7 +53,7 @@ def render_sidebar_history(username: str) -> bool:
 
 
 def _render_job_entry(job: dict, username: str) -> None:
-    """Rendert einen einzelnen Job-Eintrag in der Sidebar."""
+    """Rendert einen einzelnen Job-Eintrag."""
     job_id = job["id"]
     status = job["status"]
     label, icon = STATUS_LABELS.get(status, (status, "⚪"))
@@ -73,7 +72,7 @@ def _render_job_entry(job: dict, username: str) -> None:
         date_str = ""
 
     # Container für den Eintrag
-    col1, col2 = st.sidebar.columns([5, 1])
+    col1, col2 = st.columns([5, 1])
 
     with col1:
         if st.button(
@@ -95,4 +94,4 @@ def _render_job_entry(job: dict, username: str) -> None:
     # Fortschrittsbalken für aktive Jobs
     if status in ACTIVE_STATUSES:
         progress = job.get("progress_percent", 0.0) or 0.0
-        st.sidebar.progress(progress, text=job.get("progress", ""))
+        st.progress(progress, text=job.get("progress", ""))
