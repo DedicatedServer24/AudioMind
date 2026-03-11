@@ -1,145 +1,238 @@
-# Implementation Plan: Background Processing + User History
-
-## Phase 1 — Database Layer (`services/database.py`) ✅ IMPLEMENTED
-
-- Create `services/database.py` with SQLite connection management
-- DB path: configurable via env var `AUDIOMIND_DB_PATH`, default `audiomind.db` in project root
-- `init_db()`: create `jobs` table if not exists
-- `create_job(username, filename, diarize, timestamps, language, template_name, custom_prompt, upload_path) -> job_id`: insert new job with status `queued`
-- `get_job(job_id) -> dict`: fetch single job by ID
-- `get_jobs_by_user(username) -> list[dict]`: all jobs for a user, newest first
-- `update_job_status(job_id, status, progress=None)`: update status and optional progress text
-- `update_job_progress_percent(job_id, percent)`: update numeric progress (0.0-1.0)
-- `complete_job(job_id, transcript, summary)`: set status=completed, store results, set completed_at
-- `fail_job(job_id, error_message)`: set status=failed, store error
-- `delete_job(job_id, username)`: delete a single job (only if owned by user, not in-progress)
-- `delete_all_jobs(username)`: delete all completed/failed jobs for a user
-- `get_next_queued_job() -> dict | None`: get oldest queued job (for worker)
-- Add `progress_percent` REAL column (0.0-1.0) to jobs table for progress bar
-- Add `language` TEXT column (nullable, null = auto-detect)
-- Thread-safe: use `check_same_thread=False` on connection
-
-**Checkpoint:** Can import database.py, call init_db(), create/read/update/delete jobs in a Python shell.
+# Quick Fixes & Verbesserungen – Implementierungsplan
 
 ---
 
-## Phase 2 — Background Worker (`services/worker.py`) ✅ IMPLEMENTED
+## 1. Copy-to-Clipboard
 
-- Create `services/worker.py`
-- `start_worker()`: starts a daemon thread that runs `_worker_loop()`
-- `_worker_loop()`: infinite loop — poll `get_next_queued_job()`, process it, sleep 2s if idle
-- `_process_job(job)`: runs the full pipeline for one job:
-  1. Update status to `compressing`, progress_percent=0.0
-  2. Call `process_upload()` with the saved file bytes from upload_path
-  3. Update status to `transcribing`, progress_percent=0.1
-  4. Call `transcribe_chunks()` with language param and a progress_callback that updates progress_percent (0.1-0.8 range)
-  5. Format transcript (diarized or plain, with/without timestamps)
-  6. Update status to `summarizing`, progress_percent=0.8
-  7. Call `summarize()` with the transcript and template/prompt
-  8. Call `complete_job()` with transcript + summary, progress_percent=1.0
-  9. Clean up temp files + uploaded file
-- Error handling: catch all exceptions, call `fail_job()`, clean up temp files
-- Use a flag/Event to prevent multiple worker threads from starting
+Buttons zum Kopieren von Transkript und Zusammenfassung in die Zwischenablage.
 
-**Checkpoint:** Start worker in a test script, insert a queued job manually, verify it gets processed end-to-end and results appear in DB.
+**Datei:** `ui/output.py`
+
+- [x] In `_render_transcript_tab()`: Copy-Button über dem Textbereich einfügen (neben dem Download-Button)
+  - `st.button("📋 Kopieren")` mit JavaScript-Workaround via `st.components.v1.html()` (Streamlit hat kein natives Clipboard-API)
+  - Alternativ: `st.code()` hat eingebauten Copy-Button — prüfen ob das für den Anwendungsfall ausreicht
+- [x] In `_render_summary_tab()`: Gleichen Copy-Button einfügen
+- [x] Helper-Funktion `_copy_to_clipboard(text, key)` erstellen, die ein kleines HTML/JS-Snippet rendert
+- [x] Testen: Button klicken → Text ist in Zwischenablage
+
+**Hinweis:** Streamlit hat keine native Clipboard-Unterstützung. Beste Option: kleines `st.components.v1.html()`-Snippet mit `navigator.clipboard.writeText()`. Alternativ `pyperclip` serverseitig — funktioniert aber nur lokal, nicht im Docker.
 
 ---
 
-## Phase 3 — Upload Flow Refactor (`ui/upload.py`) ✅ IMPLEMENTED
+## 2. Retry fehlgeschlagene Jobs (Bugfix + Verbesserung)
 
-- Add **language selector** to `render_upload_section()`:
-  - `st.selectbox` with options: "Auto-Detect", "Deutsch", "English"
-  - Maps to `None`, `"de"`, `"en"` (ISO-639-1)
-  - Add to the options row as a third column (diarize, timestamps, language)
-  - Store in `st.session_state["language"]`
-- Change `render_process_button()`:
-  - On click: save uploaded file to a persistent upload directory
-  - Insert job into DB via `create_job()` (including language)
-  - Show `st.success("Job eingereiht")`
-  - Do NOT process inline anymore — remove all inline processing logic
-  - Store the upload file bytes at `/tmp/audiomind_uploads/{job_id}{extension}`
-- Remove the `st.status()` progress block (worker handles processing now)
+Button in der Sidebar um fehlgeschlagene Jobs neu zu starten.
 
-**Checkpoint:** Upload a file, verify job appears in DB with status `queued` and correct language, verify file is saved to upload directory.
+**Status:** Teilweise implementiert in `app.py:107-120`, aber **Bug**: Der Worker löscht die `upload_path`-Datei nach Verarbeitung (`worker.py:140-143`). Ein Retry mit gelöschter Datei schlägt sofort fehl.
 
----
+### Bugfix
 
-## Phase 4 — Sidebar History (`ui/sidebar.py`) ✅ IMPLEMENTED
+**Datei:** `app.py`
 
-- Create `ui/sidebar.py`
-- `render_sidebar_history(username)`:
-  - Fetch all jobs for user via `get_jobs_by_user()`
-  - For each job, render a clickable entry:
-    - Filename (truncated if long)
-    - Date (formatted)
-    - Status badge: color-coded (blue=queued, orange=processing, green=completed, red=failed)
-  - For in-progress jobs: show `st.progress()` bar using `progress_percent`
-  - On click: set `st.session_state["selected_job_id"]` and trigger rerun
-  - Delete button (icon) per completed/failed entry
-  - "Alle loschen" button at the bottom
-- Auto-refresh: use `st.rerun()` triggered by a short `streamlit-autorefresh` interval (3-5 seconds) while any job is queued/processing
+- [x] Vor dem Retry prüfen ob `upload_path` noch existiert
+- [x] Falls Datei nicht mehr existiert: Fehlermeldung anzeigen ("Datei nicht mehr verfügbar. Bitte erneut hochladen.")
+- [x] Upload-Datei bei fehlgeschlagenen Jobs **nicht** löschen — nur bei `completed` löschen
 
-**Checkpoint:** Sidebar shows job list, status badges update, clicking a job sets session state, delete works.
+**Datei:** `services/worker.py`
+
+- [x] In `_process_job()` finally-Block: Upload-Datei nur löschen wenn Job erfolgreich war (`status == completed`)
+- [x] Bei `failed` Jobs: Upload-Datei behalten für Retry
+
+### Sidebar-Retry-Button
+
+**Datei:** `ui/sidebar.py`
+
+- [x] In `_render_job_entry()`: Bei `status == "failed"` zusätzlich einen 🔄-Button neben dem 🗑️-Button anzeigen
+- [x] Button-Logik: Neuen Job mit gleichen Parametern erstellen (wie in `app.py:109-119`), alten Job löschen
+- [x] Testen: Job fehlschlagen lassen → Retry in Sidebar → Job wird neu eingereiht
 
 ---
 
-## Phase 5 — Main Area: History View + Output Integration ✅ IMPLEMENTED
+## 3. Wortanzahl & Dauer
 
-- Modify `app.py`:
-  - Call `init_db()` at startup
-  - Call `start_worker()` at startup (only once, use a guard)
-  - Render sidebar history after auth
-  - If `selected_job_id` in session state: show that job's results instead of upload form
-- When viewing a selected job:
-  - If status is `completed`: show transcript + summary using existing `render_output_section()` (adapt to accept data as params instead of reading from session state)
-  - If status is `failed`: show error message with "Nochmal versuchen" button (re-queues the job with same params)
-  - If status is `queued`/processing: show progress bar + status text
-  - "Zuruck" button to return to upload view (clears `selected_job_id`)
-- Refactor `ui/output.py` `render_output_section()` to accept transcript, summary, and filename as parameters (instead of only reading from session state)
+Wortanzahl im Transkript + geschätzte Audiodauer in der Ergebnis-Ansicht anzeigen.
 
-**Checkpoint:** Full flow works: upload -> job queued -> worker processes -> sidebar updates -> click job -> see results. Refresh page -> results still there. Log out, log back in -> history preserved.
+**Datei:** `ui/output.py`
 
----
+- [x] In `render_output_section()`: Metrik-Zeile über den Tabs einfügen mit `st.columns()` + `st.metric()`
+- [x] Wortanzahl: `len(transcript.split())` — als `st.metric("Wörter", "1.234")`
+- [x] Geschätzte Lesedauer: `word_count // 200` Minuten (Ø Lesegeschwindigkeit) — als `st.metric("Lesedauer", "~6 Min.")`
+- [x] Zeichenanzahl: `len(transcript)` — als `st.metric("Zeichen", "12.345")`
 
-## Phase 6 — UI Polish ✅ IMPLEMENTED
+**Datei:** `services/database.py` (optional, für Audiodauer)
 
-- Switch `layout="centered"` to `layout="wide"` in `app.py`
-- Group upload section with `st.container(border=True)` for visual separation
-- Compact options row: 3 columns (diarize toggle, timestamps toggle, language select)
-- Better upload confirmation: replace `st.caption` with `st.info` showing filename + size
-- Consistent output styling: use same container style for both transcript and summary tabs
-- **Download filenames**: use pattern `transkript_YYYY-MM-DD_originalname.txt` and `zusammenfassung_YYYY-MM-DD_originalname.txt`
-  - `originalname` = uploaded filename without extension, sanitized (lowercase, spaces to hyphens)
-  - Example: Upload "App Meeting.mp4" on 2026-03-11 -> `transkript_2026-03-11_app-meeting.txt`
-- **Retry failed jobs**: "Nochmal versuchen" button on failed jobs creates a new job with same parameters
-- Add `streamlit-autorefresh` to requirements.txt
-- While any job for the current user is `queued` or processing: auto-refresh every 3 seconds
-- When no jobs are active: disable auto-refresh (no unnecessary reruns)
+- [x] Neues Feld `audio_duration_sec` in der `jobs`-Tabelle (optionales Feld, ALTER TABLE oder Migration)
 
-**Checkpoint:** UI looks clean and consistent, downloads have descriptive filenames, retry works, auto-refresh is smooth.
+**Datei:** `services/worker.py` (optional, für Audiodauer)
+
+- [x] Nach FFmpeg-Komprimierung: Audiodauer mit `ffprobe` ermitteln und in DB speichern
+- [x] Dauer in der Ergebnis-Ansicht anzeigen: `st.metric("Audiodauer", "12:34")`
+
+**Hinweis:** Wortanzahl + Lesedauer sind sofort umsetzbar ohne DB-Änderung. Audiodauer erfordert eine DB-Migration — kann als separater Schritt gemacht werden.
 
 ---
 
-## Phase 7 — Edge Cases & Robustness ✅ IMPLEMENTED
+## 4. Markdown-Export
 
-- Test edge cases:
-  - Multiple jobs queued by same user
-  - Multiple users submitting jobs
-  - Refresh during processing
-  - Delete while processing (should be prevented)
-  - Worker crash recovery (job stays in processing state — consider a stale job timeout)
-- Add `audiomind.db` to `.gitignore`
+Zusammenfassung als `.md` downloaden (Formatierung bleibt erhalten).
 
-**Checkpoint:** All edge cases handled gracefully.
+**Datei:** `ui/output.py`
+
+- [x] In `_render_summary_tab()`: Zweiten Download-Button hinzufügen für `.md`-Export
+- [x] Download-Dateiname: `zusammenfassung_{date}_{filename}.md` (gleiche Logik wie `.txt`)
+- [x] `_generate_download_names()` erweitern: Auch `.md`-Dateinamen zurückgeben (oder separate Funktion)
+- [x] Layout: Beide Download-Buttons nebeneinander in `st.columns(2)`
+- [x] Testen: Download → Datei öffnet korrekt in Markdown-Editor/Viewer
+
+**Aufwand:** Minimal — die Zusammenfassung ist bereits Markdown-formatiert, es ändert sich nur die Dateiendung und der MIME-Type (`text/markdown`).
 
 ---
 
-## Phase 8 — Docker & Deployment Updates ✅ IMPLEMENTED
+## 5. Streaming-Zusammenfassung *(übersprungen — siehe docs/future-improvements.md)*
 
-- Update `.dockerignore` if needed
-- Update `deployment.md`: add volume mount for SQLite DB (`/data/audiomind/audiomind.db:/app/audiomind.db`)
-- Update `config.py`: add `DB_PATH` constant from env var
-- Test full Docker build + run with the new features
-- Verify volume persistence: restart container, history still there
+GPT-4o-Response streamen für schnelleres Feedback in der UI.
 
-**Checkpoint:** Docker container runs with persistent DB. Redeploy preserves all history data.
+**Achtung:** Höherer Aufwand als die anderen Quick Fixes, da die aktuelle Architektur (Background-Worker + DB-Polling) nicht für Streaming ausgelegt ist. Zwei mögliche Ansätze:
+
+### Ansatz A: Streaming in DB schreiben (einfacher)
+
+**Datei:** `services/summarization.py`
+
+- [x] Neue Funktion `summarize_streaming()` die `stream=True` nutzt
+- [x] Chunks akkumulieren und regelmäßig (alle ~500 Zeichen) in DB schreiben
+
+**Datei:** `services/database.py`
+
+- [x] Neue Funktion `update_job_summary_partial(job_id, partial_summary)` — schreibt Zwischenstand
+
+**Datei:** `services/worker.py`
+
+- [x] In `_process_job()`: `summarize_streaming()` statt `summarize()` aufrufen
+- [x] Partial-Summary während des Streamings in DB updaten
+
+**Datei:** `app.py`
+
+- [x] Im `job_status_fragment()`: Wenn Status `summarizing` und `summary` nicht leer → partial Summary anzeigen
+- [x] Fragment pollt ohnehin alle 3s — zeigt automatisch den Zwischenstand
+
+### Ansatz B: Direkt in UI streamen (komplexer, bessere UX)
+
+- [x] Zusammenfassung nicht im Worker machen, sondern nach Transkription direkt im Streamlit-Thread mit `st.write_stream()`
+- [x] Worker-Pipeline aufteilen: Worker macht nur Komprimierung + Transkription, Zusammenfassung wird separat getriggert
+- [x] Erfordert größere Architektur-Änderung
+
+**Empfehlung:** Ansatz A — minimale Architektur-Änderung, trotzdem Live-Feedback.
+
+- [x] Testen: Job starten → während "Zusammenfassung wird erstellt" → Text erscheint stückweise
+
+---
+
+## 6. Transkript editieren
+
+Vor der Zusammenfassung manuell korrigieren (Texteditor-Modus).
+
+**Datei:** `ui/output.py`
+
+- [x] In `_render_transcript_tab()`: Toggle "Transkript bearbeiten" hinzufügen
+- [x] Wenn aktiv: `st.text_area()` statt read-only Anzeige, vorausgefüllt mit dem Transkript
+- [x] "Änderungen übernehmen"-Button: Speichert editiertes Transkript in DB
+- [x] "Neu zusammenfassen"-Button: Erstellt neue Zusammenfassung basierend auf editiertem Transkript
+
+### Sprecher umbenennen (bei Diarization)
+
+Wenn der Job mit Sprecher-Labels erstellt wurde, erscheinen Sprecher im Format `Speaker 1: Text`, `Speaker 2: Text` etc. Der Nutzer soll diese vor der Zusammenfassung umbenennen können.
+
+**Datei:** `ui/output.py`
+
+- [x] Sprecher aus dem Transkript extrahieren: Regex `^(Speaker \d+):` über alle Zeilen, unique Set sammeln
+- [x] Nur anzeigen wenn Sprecher gefunden werden (= Job hatte `diarize=True`)
+- [x] Pro Sprecher ein `st.text_input()` rendern, z.B.: `Speaker 1` → Eingabefeld mit Placeholder "z.B. Jan"
+- [x] Layout: `st.columns(2)` — links der Original-Name, rechts das Eingabefeld
+- [x] "Sprecher umbenennen"-Button: Führt String-Replace im Transkript durch (`Speaker 1:` → `Jan:`)
+- [x] Reihenfolge beachten: Längste Sprechernamen zuerst ersetzen (verhindert `Speaker 10` → `JanSpeaker 0`)
+- [x] Nach Umbenennung: Transkript in DB aktualisieren + Anzeige refreshen
+- [x] Umbenennung und freie Textbearbeitung kombinierbar: Erst Sprecher umbenennen, dann Feinschliff im Texteditor
+
+**Datei:** `services/database.py`
+
+- [x] Neue Funktion `update_job_transcript(job_id, transcript)` — überschreibt gespeichertes Transkript
+
+**Datei:** `app.py` oder `ui/output.py`
+
+- [x] "Neu zusammenfassen"-Logik: Ruft `summarize()` direkt auf (synchron im Streamlit-Thread, da Text bereits vorliegt)
+- [x] Während der Zusammenfassung: Spinner anzeigen (`with st.spinner("Zusammenfassung wird neu erstellt...")`)
+- [x] Nach Abschluss: Neue Zusammenfassung in DB speichern und Ansicht aktualisieren
+
+**Datei:** `services/database.py`
+
+- [x] Neue Funktion `update_job_summary(job_id, summary)` — überschreibt gespeicherte Zusammenfassung
+
+- [x] Testen: Transkript mit Sprechern → Speaker 1 zu "Jan" umbenennen → Transkript zeigt "Jan:" statt "Speaker 1:"
+- [x] Testen: Umbenennen → "Neu zusammenfassen" → Zusammenfassung nutzt echte Namen
+- [x] Testen: Transkript ohne Sprecher → Umbenennen-UI wird nicht angezeigt
+
+---
+
+## 7. Bessere Audio-Komprimierung für Diarization
+
+Die aktuelle Komprimierung (16kHz, Mono, 32-128 kbps) ist für reine Transkription optimiert, degradiert aber Stimmmerkmale, die für Sprechertrennung wichtig sind. Wenn Diarization aktiviert ist, soll schonender komprimiert werden.
+
+**Datei:** `services/audio_processing.py`
+
+### `compress_audio()` (Zeile 69-109)
+
+- [x] Parameter `diarize: bool = False` hinzufügen
+- [x] Wenn `diarize=True`: Sample-Rate auf `24000` statt `16000` (bessere Stimmunterscheidung)
+- [x] Wenn `diarize=True`: Mindest-Bitrate auf `64` statt `32` kbps
+- [x] Wenn `diarize=True`: Max-Bitrate auf `192` statt `128` kbps
+- [x] Optional: Noise Reduction Filter hinzufügen (`-af "afftdn"`) für Diarization-Jobs
+
+Aktuell (Zeile 87):
+```python
+target_bitrate_kbps = max(32, min(target_bitrate_kbps, 128))
+```
+Neu:
+```python
+min_bitrate = 64 if diarize else 32
+max_bitrate = 192 if diarize else 128
+sample_rate = "24000" if diarize else "16000"
+target_bitrate_kbps = max(min_bitrate, min(target_bitrate_kbps, max_bitrate))
+```
+
+### `split_audio()` (Zeile 112-178)
+
+- [x] Parameter `diarize: bool = False` hinzufügen
+- [x] `diarize` an `compress_audio()` durchreichen (Zeile 129)
+- [x] Inline-FFmpeg-Aufruf für Chunks (Zeile 146-148): Sample-Rate und Bitrate analog anpassen
+  - Aktuell hardcoded: `"-ar", "16000"` und `"-b:a", "64k"`
+  - Neu: `"-ar", "24000"` und `"-b:a", "96k"` wenn `diarize=True`
+
+### `process_upload()` (Zeile 181-219)
+
+- [x] Parameter `diarize: bool = False` hinzufügen
+- [x] `diarize` an `split_audio()` durchreichen (Zeile 208)
+
+### Aufrufer: `services/worker.py` (Zeile 77)
+
+- [x] `diarize`-Flag aus dem Job lesen und an `process_upload()` übergeben:
+  ```python
+  chunk_paths = process_upload(job["filename"], file_bytes, diarize=bool(job["diarize"]))
+  ```
+
+- [x] Testen: Job ohne Diarization → Komprimierung wie bisher (16kHz, 32-128 kbps)
+- [x] Testen: Job mit Diarization → höhere Qualität (24kHz, 64-192 kbps)
+- [x] Testen: Chunks bleiben unter 25 MB API-Limit auch mit höherer Bitrate
+
+**Hinweis:** Höhere Qualität = größere Dateien = evtl. mehr Chunks. Das ist akzeptabel, da die Sprechergenauigkeit wichtiger ist als minimale Dateigröße.
+
+---
+
+## Empfohlene Reihenfolge
+
+1. **Markdown-Export** — 5 Min. Aufwand, sofort Mehrwert
+2. **Bessere Diarization-Komprimierung** — 10 Min., direkter Effekt auf Sprechergenauigkeit
+3. **Wortanzahl & Dauer** (ohne Audiodauer) — 10 Min., reine UI-Ergänzung
+4. **Copy-to-Clipboard** — 15 Min., braucht JS-Snippet
+5. **Retry fehlgeschlagene Jobs** — 20 Min., inkl. Bugfix im Worker
+6. **Transkript editieren + Sprecher umbenennen** — 30 Min., neue DB-Funktionen + UI-Logik
+7. **Streaming-Zusammenfassung** — 45-60 Min., Ansatz A mit DB-Zwischenstand

@@ -4,7 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 
-from services.database import delete_all_jobs, delete_job, get_jobs_by_user
+from services.database import create_job, delete_all_jobs, delete_job, get_jobs_by_user
 
 STATUS_LABELS = {
     "queued": ("In Warteschlange", "🔵"),
@@ -84,7 +84,31 @@ def _render_job_entry(job: dict, username: str) -> None:
             st.rerun()
 
     with col2:
-        if status in ("completed", "failed"):
+        if status == "failed":
+            import os
+            upload_path = job.get("upload_path", "")
+            if upload_path and os.path.exists(upload_path):
+                if st.button("🔄", key=f"retry_{job_id}"):
+                    new_job_id = create_job(
+                        username=username,
+                        filename=job["filename"],
+                        diarize=bool(job["diarize"]),
+                        timestamps=bool(job["timestamps"]),
+                        language=job["language"],
+                        template_name=job["template_name"],
+                        custom_prompt=job["custom_prompt"],
+                        upload_path=upload_path,
+                    )
+                    delete_job(job_id, username)
+                    st.session_state["selected_job_id"] = new_job_id
+                    st.rerun()
+            else:
+                if st.button("🗑️", key=f"del_{job_id}"):
+                    delete_job(job_id, username)
+                    if st.session_state.get("selected_job_id") == job_id:
+                        del st.session_state["selected_job_id"]
+                    st.rerun()
+        elif status == "completed":
             if st.button("🗑️", key=f"del_{job_id}"):
                 delete_job(job_id, username)
                 if st.session_state.get("selected_job_id") == job_id:

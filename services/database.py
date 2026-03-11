@@ -161,6 +161,26 @@ def delete_all_jobs(username: str) -> int:
     return result.rowcount
 
 
+def update_job_transcript(job_id: str, transcript: str) -> None:
+    """Überschreibt das gespeicherte Transkript eines Jobs."""
+    conn = _get_connection()
+    conn.execute(
+        "UPDATE jobs SET transcript = ? WHERE id = ?",
+        (transcript, job_id),
+    )
+    conn.commit()
+
+
+def update_job_summary(job_id: str, summary: str) -> None:
+    """Überschreibt die gespeicherte Zusammenfassung eines Jobs."""
+    conn = _get_connection()
+    conn.execute(
+        "UPDATE jobs SET summary = ? WHERE id = ?",
+        (summary, job_id),
+    )
+    conn.commit()
+
+
 def get_next_queued_job() -> dict | None:
     """Gibt den ältesten Job mit Status 'queued' zurück."""
     conn = _get_connection()

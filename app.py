@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from config import validate_env
+from config import APP_VERSION, validate_env
 from services.errors import ConfigError
 
 # --- Page Config ---
@@ -70,6 +70,7 @@ with st.sidebar:
         sidebar_fragment_polling()
     else:
         sidebar_fragment_static()
+    st.caption(f"v{APP_VERSION}")
 
 # --- Hauptbereich ---
 st.title("AudioMind")
@@ -100,24 +101,31 @@ if selected_job_id:
                 transcript=job["transcript"],
                 summary=job["summary"],
                 filename=job["filename"],
+                job_id=selected_job_id,
             )
 
         elif status == "failed":
+            import os
             st.error(f"Verarbeitung fehlgeschlagen: {job.get('error_message', 'Unbekannter Fehler')}")
-            if st.button("🔄 Nochmal versuchen"):
-                # Neuen Job mit gleichen Parametern erstellen
-                new_job_id = create_job(
-                    username=job["username"],
-                    filename=job["filename"],
-                    diarize=bool(job["diarize"]),
-                    timestamps=bool(job["timestamps"]),
-                    language=job["language"],
-                    template_name=job["template_name"],
-                    custom_prompt=job["custom_prompt"],
-                    upload_path=job.get("upload_path", ""),
-                )
-                st.session_state["selected_job_id"] = new_job_id
-                st.rerun()
+            upload_path = job.get("upload_path", "")
+            if upload_path and os.path.exists(upload_path):
+                if st.button("🔄 Nochmal versuchen"):
+                    from services.database import delete_job
+                    new_job_id = create_job(
+                        username=job["username"],
+                        filename=job["filename"],
+                        diarize=bool(job["diarize"]),
+                        timestamps=bool(job["timestamps"]),
+                        language=job["language"],
+                        template_name=job["template_name"],
+                        custom_prompt=job["custom_prompt"],
+                        upload_path=upload_path,
+                    )
+                    delete_job(selected_job_id, username)
+                    st.session_state["selected_job_id"] = new_job_id
+                    st.rerun()
+            else:
+                st.warning("Datei nicht mehr verfügbar. Bitte erneut hochladen.")
 
         elif status in ("queued", "compressing", "transcribing", "summarizing"):
             # Job-Status als Fragment: aktualisiert nur diesen Bereich

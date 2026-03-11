@@ -74,7 +74,7 @@ def _process_job(job: dict) -> None:
         with open(upload_path, "rb") as f:
             file_bytes = f.read()
 
-        chunk_paths = process_upload(job["filename"], file_bytes)
+        chunk_paths = process_upload(job["filename"], file_bytes, diarize=bool(job["diarize"]))
         temp_dir = str(__import__("pathlib").Path(chunk_paths[0]).parent)
 
         # Schritt 2: Transkription
@@ -136,9 +136,12 @@ def _process_job(job: dict) -> None:
         # Temp-Dateien aufräumen
         if temp_dir:
             cleanup_temp_dir(temp_dir)
-        # Upload-Datei löschen
-        if upload_path and os.path.exists(upload_path):
-            try:
-                os.remove(upload_path)
-            except OSError:
-                pass
+        # Upload-Datei nur bei erfolgreichem Job löschen (bei failed bleibt sie für Retry)
+        from services.database import get_job as _get_job
+        current = _get_job(job_id)
+        if current and current["status"] == "completed":
+            if upload_path and os.path.exists(upload_path):
+                try:
+                    os.remove(upload_path)
+                except OSError:
+                    pass

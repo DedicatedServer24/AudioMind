@@ -246,16 +246,28 @@ audiomind/
 
 ---
 
+## Quick Fixes & Verbesserungen
+
+| Feature | Beschreibung | Aufwand |
+|---|---|---|
+| Copy-to-Clipboard | Button zum Kopieren von Transkript/Zusammenfassung in die Zwischenablage | gering |
+| Retry fehlgeschlagene Jobs | Button in der Sidebar um fehlgeschlagene Jobs neu zu starten | gering |
+| Wortanzahl & Dauer | Wortanzahl im Transkript + geschätzte Audiodauer in der Ergebnis-Ansicht | gering |
+| Markdown-Export | Zusammenfassung als `.md` downloaden (Formatierung bleibt erhalten) | gering |
+| Streaming-Zusammenfassung | GPT-4o-Response streamen für schnelleres Feedback in der UI | gering |
+| Transkript editieren | Vor der Zusammenfassung manuell korrigieren (Texteditor-Modus) | gering |
+
+---
+
 ## Roadmap – Mittelfristig (V2)
 
 | Feature | Beschreibung | Aufwand |
 |---|---|---|
-| Background-Worker | Celery/Redis für asynchrone Verarbeitung ohne UI-Blockade | hoch |
 | Batch-Verarbeitung | Mehrere Dateien gleichzeitig hochladen, Ergebnisse als ZIP | mittel |
-| History pro Nutzer | Letzte X Transkriptionen abrufbar (SQLite-DB) | mittel |
-| Transkript editieren | Vor der Zusammenfassung manuell korrigieren | gering |
-| Ergebnis per Mail | Button "An mich senden" nach Verarbeitung | gering |
 | Export als PDF/DOCX | Zusätzlich zu .txt auch .pdf und .docx anbieten | mittel |
+| Sprecher benennen | Vor Zusammenfassung "Sprecher 1" → "Max Mustermann" umbenennen | mittel |
+| Prompt-Bibliothek | Nutzer können eigene Prompts speichern & benennen (in DB) | mittel |
+| URL-Import | Direkt-Link zu YouTube/Podcast-URL eingeben, Audio automatisch extrahieren | mittel |
 | Unit-Tests | Tests für eigene Logik: Chunking, Validierung, Template-Variablen | gering |
 
 ---
@@ -264,97 +276,5 @@ audiomind/
 
 | Feature | Beschreibung | Aufwand |
 |---|---|---|
-| Prompt-Bibliothek | Nutzer können eigene Prompts speichern & benennen | mittel |
 | Admin-Dashboard | Nutzungsübersicht, API-Kosten im Blick, User verwalten | hoch |
-| URL-Import | Direkt-Link zu Zoom/Teams/YouTube-Recording eingeben | mittel |
-| Sprecher benennen | Vor Zusammenfassung "Sprecher 1" → "Max Mustermann" umbenennen | mittel |
 | Mehrsprachige UI | App-Oberfläche in DE/EN umschaltbar | gering |
-
----
-
-## V1 – Bewusst weggelassen
-
-- Keine Datenbank / History
-- Kein Admin-Panel
-- Keine Batch-Verarbeitung
-- Kein Mail-Versand
-- Kein Background-Worker (kommt in V2)
-
----
-
-## Umsetzungsplan V1
-
-### Phase 1 – Fundament (Config, Errors, Auth)
-
-Dateien: `config.py`, `services/errors.py`, `auth.py`, `config.yaml`, `.env`, `.gitignore`, `requirements.txt`
-
-- [x] `config.py` → Env-Validierung, Konstanten (Limits, erlaubte Formate)
-- [x] `services/errors.py` → alle Exception-Klassen
-- [x] `auth.py` → Login/Logout mit streamlit-authenticator
-- [x] `config.yaml` → Test-User anlegen
-- [x] `.env` → `OPENAI_API_KEY` Platzhalter
-- [x] `.gitignore` → `.env`, `.venv/`, `__pycache__/`
-- [x] `requirements.txt` → alle Dependencies
-- [x] `app.py` → minimaler Entry-Point: Env-Check → Login → "Willkommen {name}"
-
-**Checkpoint:** App startet, Login funktioniert, ungültige Env-Vars zeigen Fehlermeldung.
-
----
-
-### Phase 2 – Audio-Verarbeitung (FFmpeg + OpenAI Transcription)
-
-Dateien: `services/audio_processing.py`, `services/transcription.py`
-
-- [x] `audio_processing.py` → Datei-Validierung (Format, Größe)
-- [x] `audio_processing.py` → FFmpeg-Komprimierung auf <25 MB
-- [x] `audio_processing.py` → Splitting in 20-Min-Chunks bei langen Audios
-- [x] `audio_processing.py` → Temp-Dateien sauber aufräumen
-- [x] `transcription.py` → OpenAI API-Call mit `gpt-4o-transcribe`
-- [x] `transcription.py` → Diarization mit `gpt-4o-transcribe-diarize` + `chunking_strategy`
-- [x] `transcription.py` → Multi-Chunk-Transkription (Chunks einzeln senden, zusammenfügen)
-- [x] `transcription.py` → Error-Handling (Retry bei Rate-Limit, spezifische Exceptions)
-
-**Checkpoint:** Ein Audio-File kann per Python-Script transkribiert werden (mit und ohne Diarization). Chunking funktioniert für Dateien >25 Min.
-
----
-
-### Phase 3 – Zusammenfassung (Prompts + GPT-4o)
-
-Dateien: `services/summarization.py`, `prompts/*.txt`
-
-- [x] Alle 4 Prompt-Templates mit `{variable}`-Platzhaltern erstellen
-- [x] `summarization.py` → Template laden, Variablen ersetzen
-- [x] `summarization.py` → GPT-4o API-Call mit befülltem Prompt
-- [x] `summarization.py` → Error-Handling (Rate-Limit, Timeout)
-
-**Checkpoint:** Transkript rein → Zusammenfassung raus. Alle 4 Templates + eigener Prompt funktionieren.
-
----
-
-### Phase 4 – UI (Upload, Optionen, Output)
-
-Dateien: `ui/upload.py`, `ui/output.py`, `app.py` erweitern
-
-- [x] `ui/upload.py` → Datei-Upload (Drag & Drop) mit Format-/Größenvalidierung
-- [x] `ui/upload.py` → Optionen (Sprecher-Labels Toggle, Timestamps Toggle)
-- [x] `ui/upload.py` → Prompt-Vorlage wählen (Selectbox + Textfeld bei "Eigener Prompt")
-- [x] `ui/upload.py` → "Zusammenfassen"-Button mit Fortschrittsanzeige (`st.status`)
-- [x] `ui/output.py` → Tabs (Transkript / Zusammenfassung)
-- [x] `ui/output.py` → Suche im Transkript mit Highlighting
-- [x] `ui/output.py` → Download-Buttons (.txt)
-- [x] `app.py` → Upload- und Output-Bereiche einbinden, Flow verbinden
-
-**Checkpoint:** Kompletter Flow funktioniert im Browser: Upload → Optionen → Verarbeitung → Ergebnis mit Suche + Download.
-
----
-
-### Phase 5 – Docker & Deployment
-
-Dateien: `Dockerfile`, `.streamlit/config.toml`
-
-- [x] `.streamlit/config.toml` → `maxUploadSize = 500`, Theme-Settings
-- [x] `Dockerfile` → Build + Run konfigurieren (python:3.11-slim, ffmpeg, Port 8501)
-- [x] Docker lokal testen (`docker build` + `docker run`)
-- [x] Deployment-Anleitung für Coolify finalisieren
-
-**Checkpoint:** App läuft im Docker-Container. Bereit für Coolify-Deployment.

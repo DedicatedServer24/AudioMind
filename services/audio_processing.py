@@ -66,10 +66,11 @@ def get_audio_duration(file_path: str) -> float:
         raise CompressionError(f"Audio-Dauer konnte nicht ermittelt werden: {e}")
 
 
-def compress_audio(input_path: str, output_path: str, target_size_mb: int = MAX_API_FILE_SIZE_MB) -> str:
+def compress_audio(input_path: str, output_path: str, target_size_mb: int = MAX_API_FILE_SIZE_MB, diarize: bool = False) -> str:
     """Komprimiert eine Audiodatei mit FFmpeg auf die Zielgröße.
 
     Konvertiert zu Mono-MP3 mit angepasster Bitrate.
+    Bei diarize=True wird schonender komprimiert (höhere Sample-Rate und Bitrate).
 
     Returns:
         Pfad zur komprimierten Datei.
@@ -83,8 +84,10 @@ def compress_audio(input_path: str, output_path: str, target_size_mb: int = MAX_
 
     # Ziel-Bitrate berechnen: target_size_mb * 8000 kbit / duration_sec, mit Sicherheitspuffer
     target_bitrate_kbps = int((target_size_mb * 8000 * 0.9) / duration)
-    # Mindestens 32 kbps, maximal 128 kbps
-    target_bitrate_kbps = max(32, min(target_bitrate_kbps, 128))
+    min_bitrate = 64 if diarize else 32
+    max_bitrate = 192 if diarize else 128
+    sample_rate = "24000" if diarize else "16000"
+    target_bitrate_kbps = max(min_bitrate, min(target_bitrate_kbps, max_bitrate))
 
     try:
         result = subprocess.run(
@@ -93,7 +96,7 @@ def compress_audio(input_path: str, output_path: str, target_size_mb: int = MAX_
                 "-i", input_path,
                 "-vn",  # Video-Stream entfernen
                 "-ac", "1",  # Mono
-                "-ar", "16000",  # 16kHz Samplerate (gut für Speech)
+                "-ar", sample_rate,
                 "-b:a", f"{target_bitrate_kbps}k",
                 "-y",  # Überschreiben ohne Nachfrage
                 output_path,
@@ -109,11 +112,12 @@ def compress_audio(input_path: str, output_path: str, target_size_mb: int = MAX_
         raise CompressionError("FFmpeg Timeout bei der Komprimierung.")
 
 
-def split_audio(input_path: str, temp_dir: str) -> list[str]:
+def split_audio(input_path: str, temp_dir: str, diarize: bool = False) -> list[str]:
     """Splittet eine Audiodatei in Chunks von max. MAX_CHUNK_DURATION_SEC Sekunden.
 
     Bei kurzen Dateien (<= MAX_CHUNK_DURATION_SEC) wird nur komprimiert.
     Chunks haben einen Overlap von CHUNK_OVERLAP_SEC Sekunden.
+    Bei diarize=True wird schonender komprimiert.
 
     Returns:
         Liste der Pfade zu den Chunk-Dateien.
@@ -126,13 +130,15 @@ def split_audio(input_path: str, temp_dir: str) -> list[str]:
     if duration <= MAX_CHUNK_DURATION_SEC:
         # Kurze Datei: nur komprimieren
         output_path = os.path.join(temp_dir, "chunk_000.mp3")
-        compress_audio(input_path, output_path)
+        compress_audio(input_path, output_path, diarize=diarize)
         return [output_path]
 
     # Lange Datei: in Chunks splitten
     chunks = []
     chunk_index = 0
     start_time = 0.0
+    sample_rate = "24000" if diarize else "16000"
+    chunk_bitrate = "96k" if diarize else "64k"
 
     while start_time < duration:
         output_path = os.path.join(temp_dir, f"chunk_{chunk_index:03d}.mp3")
@@ -147,8 +153,8 @@ def split_audio(input_path: str, temp_dir: str) -> list[str]:
                     "-t", str(chunk_duration),
                     "-vn",
                     "-ac", "1",
-                    "-ar", "16000",
-                    "-b:a", "64k",
+                    "-ar", sample_rate,
+                    "-b:a", chunk_bitrate,
                     "-y",
                     output_path,
                 ],
@@ -167,7 +173,7 @@ def split_audio(input_path: str, temp_dir: str) -> list[str]:
         chunk_size_mb = os.path.getsize(output_path) / (1024 * 1024)
         if chunk_size_mb > MAX_API_FILE_SIZE_MB:
             compressed_path = os.path.join(temp_dir, f"chunk_{chunk_index:03d}_compressed.mp3")
-            compress_audio(output_path, compressed_path)
+            compress_audio(output_path, compressed_path, diarize=diarize)
             os.remove(output_path)
             os.rename(compressed_path, output_path)
 
@@ -178,7 +184,7 @@ def split_audio(input_path: str, temp_dir: str) -> list[str]:
     return chunks
 
 
-def process_upload(file_name: str, file_bytes: bytes) -> list[str]:
+def process_upload(file_name: str, file_bytes: bytes, diarize: bool = False) -> list[str]:
     """Hauptfunktion: Validiert, speichert und verarbeitet eine hochgeladene Datei.
 
     Gibt eine Liste von Chunk-Pfaden zurück, die für die Transkription bereit sind.
@@ -205,7 +211,7 @@ def process_upload(file_name: str, file_bytes: bytes) -> list[str]:
             f.write(file_bytes)
 
         # Audio splitten und komprimieren
-        chunks = split_audio(input_path, temp_dir)
+        chunks = split_audio(input_path, temp_dir, diarize=diarize)
 
         # Original-Upload löschen (Chunks bleiben)
         if os.path.exists(input_path):

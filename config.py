@@ -8,6 +8,8 @@ from services.errors import ConfigError
 
 load_dotenv()
 
+APP_VERSION = "1.2"
+
 # --- Konstanten ---
 
 ALLOWED_FORMATS = ["mp3", "mp4", "m4a", "wav", "webm", "ogg", "flac"]
