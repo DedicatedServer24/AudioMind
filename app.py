@@ -38,14 +38,37 @@ authenticator.logout(location="sidebar")
 st.sidebar.write(f"Angemeldet als **{st.session_state.get('name')}**")
 
 # --- Sidebar History ---
-from ui.sidebar import render_sidebar_history
+from services.database import get_jobs_by_user
+from ui.sidebar import ACTIVE_STATUSES, render_sidebar_history
 
-has_active_jobs = render_sidebar_history(username)
+# Prüfe ob aktive Jobs existieren um Polling nur bei Bedarf zu aktivieren
+_initial_jobs = get_jobs_by_user(username)
+_has_active = any(j["status"] in ACTIVE_STATUSES for j in _initial_jobs)
 
-# --- Auto-Refresh bei aktiven Jobs ---
-if has_active_jobs:
-    from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=3000, key="auto_refresh")
+
+@st.fragment(run_every=3)
+def sidebar_fragment_polling():
+    """Sidebar mit Polling: Aktualisiert alle 3s bei aktiven Jobs."""
+    render_sidebar_history(username)
+    # Wenn der angeschaute Job fertig wird: volle Seite neu laden
+    selected_id = st.session_state.get("selected_job_id")
+    if selected_id:
+        jobs = get_jobs_by_user(username)
+        for j in jobs:
+            if j["id"] == selected_id and j["status"] in ("completed", "failed"):
+                st.rerun()
+
+
+@st.fragment
+def sidebar_fragment_static():
+    """Sidebar ohne Polling: Rendert einmal, kein Timer."""
+    render_sidebar_history(username)
+
+
+if _has_active:
+    sidebar_fragment_polling()
+else:
+    sidebar_fragment_static()
 
 # --- Hauptbereich ---
 st.title("AudioMind")
@@ -81,7 +104,6 @@ if selected_job_id:
         elif status == "failed":
             st.error(f"Verarbeitung fehlgeschlagen: {job.get('error_message', 'Unbekannter Fehler')}")
             if st.button("🔄 Nochmal versuchen"):
-                import os
                 # Neuen Job mit gleichen Parametern erstellen
                 new_job_id = create_job(
                     username=job["username"],
@@ -97,11 +119,26 @@ if selected_job_id:
                 st.rerun()
 
         elif status in ("queued", "compressing", "transcribing", "summarizing"):
-            from ui.sidebar import STATUS_LABELS
-            label, icon = STATUS_LABELS.get(status, (status, "⚪"))
-            st.info(f"{icon} {label}: {job.get('progress', 'Warte auf Verarbeitung...')}")
-            progress = job.get("progress_percent", 0.0) or 0.0
-            st.progress(progress)
+            # Job-Status als Fragment: aktualisiert nur diesen Bereich
+            @st.fragment(run_every=3)
+            def job_status_fragment():
+                current_job = get_job(selected_job_id)
+                if not current_job:
+                    return
+                s = current_job["status"]
+                if s in ("completed", "failed"):
+                    # Job fertig — volle Seite neu laden um Ergebnis anzuzeigen
+                    st.rerun()
+                    return
+                from ui.sidebar import STATUS_LABELS
+                label, _ = STATUS_LABELS.get(s, (s, "⚪"))
+                progress_text = current_job.get("progress", "Warte auf Verarbeitung...")
+                with st.status(f"{label}...", expanded=True, state="running"):
+                    st.write(progress_text)
+                    progress = current_job.get("progress_percent", 0.0) or 0.0
+                    st.progress(progress)
+
+            job_status_fragment()
 
 else:
     # Upload-Ansicht

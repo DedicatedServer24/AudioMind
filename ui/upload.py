@@ -57,8 +57,21 @@ def render_upload_section():
 
     # --- Prompt-Vorlage ---
     st.subheader("Zusammenfassung")
+
+    TEMPLATE_DESCRIPTIONS = {
+        "Meeting-Protokoll": "Teilnehmer, besprochene Themen, Entscheidungen und Action Items",
+        "Zusammenfassung": "Kompakter Überblick mit Kernaussagen und Fazit",
+        "Aufgabenliste": "Alle To-Dos mit Verantwortlichen, Fristen und Prioritäten",
+        "Interview-Auswertung": "Kernaussagen pro Thema, wichtige Zitate und Gesamteindruck",
+        "Eigener Prompt": "Eigene Anweisungen für die Zusammenfassung formulieren",
+    }
+
     template_options = list(PROMPT_TEMPLATES.keys()) + ["Eigener Prompt"]
-    selected = st.selectbox("Prompt-Vorlage", template_options)
+    selected = st.selectbox(
+        "Prompt-Vorlage",
+        template_options,
+        format_func=lambda x: f"{x} — {TEMPLATE_DESCRIPTIONS[x]}",
+    )
 
     custom_prompt = None
     if selected == "Eigener Prompt":
