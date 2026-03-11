@@ -6,4 +6,5 @@ __pycache__/
 config.yaml
 error.txt
 audiomind.db
+data/
 uploads/

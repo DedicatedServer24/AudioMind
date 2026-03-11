@@ -1,8 +1,10 @@
 """SQLite-Datenbank für Job-Verwaltung."""
 
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from config import DB_PATH
 
@@ -13,7 +15,10 @@ def _get_connection() -> sqlite3.Connection:
     """Gibt eine thread-safe SQLite-Verbindung zurück (Singleton)."""
     global _connection
     if _connection is None:
-        _connection = sqlite3.connect(DB_PATH, check_same_thread=False)
+        # Sicherstellen, dass das übergeordnete Verzeichnis existiert
+        db_path = Path(DB_PATH)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        _connection = sqlite3.connect(str(db_path), check_same_thread=False)
         _connection.row_factory = sqlite3.Row
         _connection.execute("PRAGMA journal_mode=WAL")
     return _connection

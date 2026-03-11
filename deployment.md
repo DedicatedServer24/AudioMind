@@ -40,10 +40,12 @@ Damit User-Daten (Passwörter) ohne Rebuild geändert werden können.
 
 1. **Add** klicken
 2. Eingaben:
-   - **Name:** `audiomind-db`
-   - **Source Path (Host):** `/data/audiomind/audiomind.db`
-   - **Destination Path (Container):** `/app/audiomind.db`
+   - **Name:** `audiomind-data`
+   - **Source Path (Host):** `/data/audiomind/data`
+   - **Destination Path (Container):** `/app/data`
 3. **Save**
+
+> Die DB-Datei (`audiomind.db`) wird automatisch im `data/`-Verzeichnis erstellt. Das Verzeichnis auf dem Host wird beim ersten Start automatisch angelegt.
 
 **config.yaml auf dem Server ablegen:**
 
@@ -95,7 +97,7 @@ docker run -d \
   -p 8501:8501 \
   -e OPENAI_API_KEY=sk-dein-key \
   -v $(pwd)/config.yaml:/app/config.yaml \
-  -v $(pwd)/audiomind.db:/app/audiomind.db \
+  -v $(pwd)/data:/app/data \
   audiomind:latest
 ```
 
