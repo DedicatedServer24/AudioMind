@@ -2,6 +2,7 @@
 
 import logging
 import time
+from collections.abc import Callable
 
 from openai import OpenAI, RateLimitError, APIError, APITimeoutError
 
@@ -91,7 +92,7 @@ def transcribe_chunks(
     chunk_paths: list[str],
     diarize: bool = False,
     language: str | None = None,
-    progress_callback: callable | None = None,
+    progress_callback: Callable | None = None,
 ) -> dict:
     """Transkribiert mehrere Audio-Chunks und fügt die Ergebnisse zusammen.
 
