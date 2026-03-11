@@ -1,0 +1,12 @@
+Extrahiere alle Aufgaben, To-Dos und Action Items aus dem folgenden Transkript. Liste sie strukturiert auf, mit Verantwortlichen (falls erkennbar) und Fristen (falls genannt).
+
+Sprache des Outputs: {language}
+
+Struktur:
+- Aufgabe
+- Verantwortlich (falls erkennbar, sonst "Nicht zugewiesen")
+- Frist / Zeitrahmen (falls genannt, sonst "Nicht genannt")
+- Priorität (falls ableitbar: hoch / mittel / niedrig)
+
+Transkript:
+{transcript}

@@ -1,0 +1,13 @@
+Werte das folgende Interview-Transkript aus. Fasse die wichtigsten Aussagen strukturiert zusammen.
+
+Sprache des Outputs: {language}
+Anzahl Sprecher: {speaker_count}
+
+Struktur:
+- Teilnehmer / Rollen (falls erkennbar)
+- Kernaussagen pro Themenblock
+- Wichtige Zitate (wörtlich, falls relevant)
+- Gesamteindruck / Fazit
+
+Transkript:
+{transcript}

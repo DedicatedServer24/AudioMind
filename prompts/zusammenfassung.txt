@@ -1,0 +1,11 @@
+Erstelle eine prägnante Zusammenfassung des folgenden Transkripts. Fasse die wichtigsten Punkte, Kernaussagen und Ergebnisse strukturiert zusammen.
+
+Sprache des Outputs: {language}
+
+Struktur:
+- Kontext / Überblick (1–2 Sätze)
+- Kernaussagen (als Aufzählung)
+- Fazit / Ergebnis
+
+Transkript:
+{transcript}

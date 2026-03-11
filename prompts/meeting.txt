@@ -1,0 +1,12 @@
+Erstelle ein strukturiertes Meeting-Protokoll aus folgendem Transkript.
+
+Sprache des Outputs: {language}
+
+Struktur:
+- Teilnehmer (falls erkennbar)
+- Besprochene Themen
+- Entscheidungen
+- Offene Punkte / Action Items
+
+Transkript:
+{transcript}
