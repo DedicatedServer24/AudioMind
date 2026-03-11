@@ -115,5 +115,5 @@ def render_process_button():
         upload_path=upload_path,
     )
 
-    st.success(f"Job eingereiht! Dein Auftrag wird im Hintergrund verarbeitet.")
     st.session_state["selected_job_id"] = job_id
+    st.rerun()
