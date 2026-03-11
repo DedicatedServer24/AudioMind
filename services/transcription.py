@@ -46,20 +46,38 @@ def transcribe_chunk(file_path: str, diarize: bool = False, language: str | None
                         model=DIARIZATION_MODEL,
                         file=audio_file,
                         response_format="diarized_json",
+                        extra_body={"chunking_strategy": "auto"},
                         **({"language": language} if language else {}),
                     )
-                    return {
-                        "text": response.text,
-                        "segments": [
-                            {
-                                "speaker": seg.speaker,
-                                "text": seg.text,
-                                "start": seg.start,
-                                "end": seg.end,
-                            }
-                            for seg in response.segments
-                        ],
-                    }
+                    # SDK may return raw dict/str for unrecognized response formats
+                    if isinstance(response, str):
+                        import json
+                        data = json.loads(response)
+                    elif isinstance(response, dict):
+                        data = response
+                    elif hasattr(response, "model_dump"):
+                        data = response.model_dump()
+                    else:
+                        data = {"text": str(response), "segments": []}
+
+                    segments = []
+                    for seg in data.get("segments", []):
+                        if isinstance(seg, dict):
+                            segments.append({
+                                "speaker": seg.get("speaker", "Unknown"),
+                                "text": seg.get("text", ""),
+                                "start": seg.get("start", 0),
+                                "end": seg.get("end", 0),
+                            })
+                        else:
+                            segments.append({
+                                "speaker": getattr(seg, "speaker", "Unknown"),
+                                "text": getattr(seg, "text", ""),
+                                "start": getattr(seg, "start", 0),
+                                "end": getattr(seg, "end", 0),
+                            })
+
+                    return {"text": data.get("text", ""), "segments": segments}
                 else:
                     response = client.audio.transcriptions.create(
                         model=TRANSCRIPTION_MODEL,
