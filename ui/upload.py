@@ -1,12 +1,16 @@
 """Upload-Bereich: Datei-Upload, Optionen und Prompt-Auswahl."""
 
 import logging
+import os
+from pathlib import Path
 
 import streamlit as st
 
 from config import ALLOWED_FORMATS, MAX_UPLOAD_SIZE_MB, PROMPT_TEMPLATES
 
 logger = logging.getLogger(__name__)
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 
 
 def render_upload_section():
@@ -16,6 +20,7 @@ def render_upload_section():
     - uploaded_file: Die hochgeladene Datei
     - diarize: Sprecher-Labels an/aus
     - timestamps: Zeitstempel an/aus
+    - language: Sprachcode oder None (Auto-Detect)
     - template_name: Gewähltes Template (oder None bei eigenem Prompt)
     - custom_prompt: Eigener Prompt-Text (oder None)
     """
@@ -31,18 +36,24 @@ def render_upload_section():
     if not uploaded_file:
         return
 
-    st.caption(f"📄 {uploaded_file.name} ({uploaded_file.size / 1024 / 1024:.1f} MB)")
+    st.info(f"📄 {uploaded_file.name} ({uploaded_file.size / 1024 / 1024:.1f} MB)")
 
     # --- Optionen ---
     st.subheader("Optionen")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         diarize = st.toggle("Sprecher-Labels", value=False, help="Erkennt verschiedene Sprecher im Audio")
     with col2:
         timestamps = st.toggle("Zeitstempel", value=False, help="Fügt Zeitangaben zum Transkript hinzu")
+    with col3:
+        language_options = ["Auto-Detect", "Deutsch", "English"]
+        language_selection = st.selectbox("Sprache", language_options)
+        language_map = {"Auto-Detect": None, "Deutsch": "de", "English": "en"}
+        language = language_map[language_selection]
 
     st.session_state["diarize"] = diarize
     st.session_state["timestamps"] = timestamps
+    st.session_state["language"] = language
 
     # --- Prompt-Vorlage ---
     st.subheader("Zusammenfassung")
@@ -64,89 +75,45 @@ def render_upload_section():
 
 
 def render_process_button():
-    """Rendert den Verarbeitungs-Button und führt den kompletten Flow aus.
-
-    Returns:
-        True wenn die Verarbeitung erfolgreich war, sonst False.
-    """
-    from services.audio_processing import cleanup_temp_dir, process_upload
-    from services.errors import AudioMindError
-    from services.summarization import summarize
-    from services.transcription import (
-        format_diarized_transcript,
-        transcribe_chunks,
-    )
+    """Rendert den Verarbeitungs-Button und reiht den Job in die Queue ein."""
+    from services.database import create_job
 
     uploaded_file = st.session_state.get("uploaded_file")
     if not uploaded_file:
-        return False
+        return
 
     # Validierung: Eigener Prompt darf nicht leer sein
     if st.session_state.get("template_name") is None and not st.session_state.get("custom_prompt", "").strip():
         st.button("Zusammenfassen", disabled=True, use_container_width=True)
         st.caption("⚠️ Bitte einen eigenen Prompt eingeben.")
-        return False
+        return
 
     if not st.button("Zusammenfassen", type="primary", use_container_width=True):
-        return False
+        return
 
-    # --- Verarbeitung ---
-    diarize = st.session_state.get("diarize", False)
-    timestamps = st.session_state.get("timestamps", False)
-    template_name = st.session_state.get("template_name")
-    custom_prompt = st.session_state.get("custom_prompt")
+    # Upload-Datei persistent speichern
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    extension = Path(uploaded_file.name).suffix
+    # Temporäre ID für Dateinamen
+    import uuid
+    temp_id = str(uuid.uuid4())
+    upload_path = os.path.join(UPLOAD_DIR, f"{temp_id}{extension}")
 
-    temp_dir = None
-    try:
-        with st.status("Verarbeitung läuft...", expanded=True) as status:
-            # Schritt 1: Komprimierung
-            st.write("🔧 Datei wird komprimiert...")
-            chunk_paths = process_upload(uploaded_file.name, uploaded_file.getvalue())
-            temp_dir = str(__import__("pathlib").Path(chunk_paths[0]).parent)
+    with open(upload_path, "wb") as f:
+        f.write(uploaded_file.getvalue())
 
-            # Schritt 2: Transkription
-            total_chunks = len(chunk_paths)
-            if total_chunks > 1:
-                st.write(f"🎙️ Transkription läuft... (0/{total_chunks} Chunks)")
+    # Job in DB erstellen
+    username = st.session_state.get("username", "unknown")
+    job_id = create_job(
+        username=username,
+        filename=uploaded_file.name,
+        diarize=st.session_state.get("diarize", False),
+        timestamps=st.session_state.get("timestamps", False),
+        language=st.session_state.get("language"),
+        template_name=st.session_state.get("template_name"),
+        custom_prompt=st.session_state.get("custom_prompt"),
+        upload_path=upload_path,
+    )
 
-                def progress_cb(current, total):
-                    st.write(f"🎙️ Transkription läuft... ({current}/{total} Chunks)")
-
-                result = transcribe_chunks(chunk_paths, diarize=diarize, progress_callback=progress_cb)
-            else:
-                st.write("🎙️ Transkription läuft...")
-                result = transcribe_chunks(chunk_paths, diarize=diarize)
-
-            # Transkript formatieren
-            if diarize and "segments" in result:
-                transcript_text = format_diarized_transcript(result["segments"], timestamps=timestamps)
-            else:
-                transcript_text = result["text"]
-
-            # Schritt 3: Zusammenfassung
-            st.write("📝 Zusammenfassung wird erstellt...")
-            summary_text = summarize(
-                transcript=result["text"],
-                template_name=template_name,
-                custom_prompt=custom_prompt,
-                speaker_count=result.get("speaker_count"),
-            )
-
-            status.update(label="Verarbeitung abgeschlossen!", state="complete", expanded=False)
-
-        # Ergebnisse in Session State speichern
-        st.session_state["transcript"] = transcript_text
-        st.session_state["summary"] = summary_text
-        return True
-
-    except AudioMindError as e:
-        logger.error(f"Verarbeitung fehlgeschlagen: {e}", exc_info=True)
-        st.error(e.user_message)
-        return False
-    except Exception as e:
-        logger.error(f"Unerwarteter Fehler: {e}", exc_info=True)
-        st.error("Ein unerwarteter Fehler ist aufgetreten. Bitte erneut versuchen.")
-        return False
-    finally:
-        if temp_dir:
-            cleanup_temp_dir(temp_dir)
+    st.success(f"Job eingereiht! Dein Auftrag wird im Hintergrund verarbeitet.")
+    st.session_state["selected_job_id"] = job_id

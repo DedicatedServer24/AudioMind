@@ -6,3 +6,7 @@ __pycache__/
 .gitignore
 audiomind-plan.md
 DEPLOYMENT.md
+audiomind.db
+uploads/
+plan.md
+docs/

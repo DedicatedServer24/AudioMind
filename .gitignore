@@ -5,3 +5,5 @@ __pycache__/
 .streamlit/secrets.toml
 config.yaml
 error.txt
+audiomind.db
+uploads/

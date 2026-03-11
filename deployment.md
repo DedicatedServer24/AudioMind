@@ -36,6 +36,15 @@ Damit User-Daten (Passwörter) ohne Rebuild geändert werden können.
    - **Destination Path (Container):** `/app/config.yaml`
 4. **Save**
 
+**Zusätzlich: Persistentes Volume für die SQLite-Datenbank:**
+
+1. **Add** klicken
+2. Eingaben:
+   - **Name:** `audiomind-db`
+   - **Source Path (Host):** `/data/audiomind/audiomind.db`
+   - **Destination Path (Container):** `/app/audiomind.db`
+3. **Save**
+
 **config.yaml auf dem Server ablegen:**
 
 Die Datei muss einmalig auf dem Coolify-Server erstellt werden:
@@ -86,6 +95,7 @@ docker run -d \
   -p 8501:8501 \
   -e OPENAI_API_KEY=sk-dein-key \
   -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/audiomind.db:/app/audiomind.db \
   audiomind:latest
 ```
 

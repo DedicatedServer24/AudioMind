@@ -1,19 +1,23 @@
 """Output-Bereich: Ergebnis-Tabs, Suche im Transkript und Downloads."""
 
 import re
+from datetime import datetime
 
 import streamlit as st
 
 
-def render_output_section():
+def render_output_section(transcript: str | None = None, summary: str | None = None, filename: str | None = None):
     """Rendert den Ergebnis-Bereich mit Tabs, Suche und Downloads.
 
-    Liest aus st.session_state:
-    - transcript: Formatiertes Transkript
-    - summary: Zusammenfassung
+    Args:
+        transcript: Formatiertes Transkript (falls None, liest aus session_state).
+        summary: Zusammenfassung (falls None, liest aus session_state).
+        filename: Original-Dateiname für Download-Benennung.
     """
-    transcript = st.session_state.get("transcript")
-    summary = st.session_state.get("summary")
+    if transcript is None:
+        transcript = st.session_state.get("transcript")
+    if summary is None:
+        summary = st.session_state.get("summary")
 
     if not transcript and not summary:
         return
@@ -21,16 +25,38 @@ def render_output_section():
     st.divider()
     st.subheader("Ergebnis")
 
+    # Download-Dateinamen generieren
+    transcript_dl_name, summary_dl_name = _generate_download_names(filename)
+
     tab_transcript, tab_summary = st.tabs(["📄 Transkript", "📝 Zusammenfassung"])
 
     with tab_transcript:
-        _render_transcript_tab(transcript)
+        _render_transcript_tab(transcript, transcript_dl_name)
 
     with tab_summary:
-        _render_summary_tab(summary)
+        _render_summary_tab(summary, summary_dl_name)
 
 
-def _render_transcript_tab(transcript: str):
+def _generate_download_names(filename: str | None) -> tuple[str, str]:
+    """Generiert beschreibende Download-Dateinamen."""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    if filename:
+        # Extension entfernen, sanitize
+        from pathlib import Path
+        stem = Path(filename).stem
+        sanitized = stem.lower().replace(" ", "-").replace("_", "-")
+        # Nur alphanumerisch und Bindestrich
+        sanitized = re.sub(r"[^a-z0-9\-]", "", sanitized)
+        sanitized = re.sub(r"-+", "-", sanitized).strip("-")
+        if sanitized:
+            return (
+                f"transkript_{date_str}_{sanitized}.txt",
+                f"zusammenfassung_{date_str}_{sanitized}.txt",
+            )
+    return (f"transkript_{date_str}.txt", f"zusammenfassung_{date_str}.txt")
+
+
+def _render_transcript_tab(transcript: str | None, dl_name: str = "transkript.txt"):
     """Rendert den Transkript-Tab mit Suchfunktion und Download."""
     if not transcript:
         st.info("Kein Transkript vorhanden.")
@@ -59,13 +85,13 @@ def _render_transcript_tab(transcript: str):
     st.download_button(
         "📥 Transkript herunterladen",
         data=transcript,
-        file_name="transkript.txt",
+        file_name=dl_name,
         mime="text/plain",
         use_container_width=True,
     )
 
 
-def _render_summary_tab(summary: str):
+def _render_summary_tab(summary: str | None, dl_name: str = "zusammenfassung.txt"):
     """Rendert den Zusammenfassungs-Tab mit Download."""
     if not summary:
         st.info("Keine Zusammenfassung vorhanden.")
@@ -76,7 +102,7 @@ def _render_summary_tab(summary: str):
     st.download_button(
         "📥 Zusammenfassung herunterladen",
         data=summary,
-        file_name="zusammenfassung.txt",
+        file_name=dl_name,
         mime="text/plain",
         use_container_width=True,
     )

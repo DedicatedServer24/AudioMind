@@ -27,6 +27,8 @@ PROMPT_TEMPLATES = {
     "Interview-Auswertung": "prompts/interview.txt",
 }
 
+DB_PATH = os.getenv("AUDIOMIND_DB_PATH", "audiomind.db")
+
 
 def validate_env():
     """Prüft, ob alle erforderlichen Env-Variablen gesetzt und gültig sind.
